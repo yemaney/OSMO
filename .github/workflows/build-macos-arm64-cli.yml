@@ -1,0 +1,64 @@
+name: Build macOS arm64 CLI
+
+on:
+  workflow_dispatch:
+    inputs:
+      ref:
+        description: Git ref, tag, or commit to build
+        required: true
+        default: main
+        type: string
+      release_tag:
+        description: Optional GitHub release tag
+        required: false
+        default: ''
+        type: string
+
+permissions:
+  actions: write
+  contents: write
+
+jobs:
+  build:
+    runs-on: macos-15
+    timeout-minutes: 45
+
+    steps:
+      - name: Check out OSMO
+        uses: actions/checkout@v6
+        with:
+          ref: ${{ inputs.ref }}
+          fetch-depth: 0
+          lfs: true
+
+      - name: Install Git LFS
+        run: git lfs install
+
+      - name: Ensure Bazelisk is available
+        run: |
+          if ! command -v bazel >/dev/null 2>&1; then
+            brew install bazelisk
+          fi
+          bazel version
+
+      - name: Build unsigned macOS arm64 package
+        run: |
+          bazel build //src/cli/packaging/macos:macos_client_unsigned_pkg_arm64
+
+      - name: Upload macOS arm64 package
+        uses: actions/upload-artifact@v7
+        with:
+          name: osmo-cli-macos-arm64
+          path: bazel-bin/src/cli/packaging/macos/macos_client_unsigned_pkg_arm64.pkg
+          if-no-files-found: error
+          retention-days: 30
+
+      - name: Create GitHub release
+        if: ${{ inputs.release_tag != '' }}
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh release create "${{ inputs.release_tag }}" \
+            bazel-bin/src/cli/packaging/macos/macos_client_unsigned_pkg_arm64.pkg \
+            --title "${{ inputs.release_tag }}" \
+            --generate-notes
